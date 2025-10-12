@@ -9,7 +9,7 @@ const SCHEDULER_DENYLIST = (process.env.SCHEDULER_DENYLIST || "@unitedtalent.com
   .map(s => s.trim().toLowerCase())
   .filter(Boolean);
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY_CUSTOM });
 
 export default async function handler(req, res) {
   try {
