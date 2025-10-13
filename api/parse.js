@@ -32,6 +32,12 @@ export default async function handler(req, res) {
       return;
     }
 
+        // Parse JSON body safely
+    const data = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+
+    const subject = data.subject;
+    const body = data.body;
+
     // Simple auth: set header "Authorization: Bearer <AUTH_TOKEN>"
     const authHeader = req.headers.authorization || "";
     if (!AUTH || !authHeader.startsWith("Bearer ") || authHeader.split(" ")[1] !== AUTH) {
