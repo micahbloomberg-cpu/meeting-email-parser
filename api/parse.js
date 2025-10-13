@@ -9,8 +9,8 @@ function setCORS(res) {
 }
 
 const MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
-const TZ = process.env.MICAHB_TZ || "America/Los_Angeles"; // your default tz for outputs
-const AUTH = process.env.MICAHB_AUTH_TOKEN;                // simple bearer auth
+const TZ = process.env.MICAHB_TZ || "America/Los_Angeles";         // your default tz for outputs
+const AUTH = process.env.MICAHB_AUTH_TOKEN;                         // simple bearer auth
 const SCHEDULER_DENYLIST = (process.env.MICAHB_SCHEDULER_DENYLIST || "@unitedtalent.com,@uta.com")
   .split(",")
   .map(s => s.trim().toLowerCase())
@@ -32,26 +32,43 @@ export default async function handler(req, res) {
       return;
     }
 
-        // Parse JSON body safely
-    const data = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
-
-    const subject = data.subject;
-    const body = data.body;
-
-    // Simple auth: set header "Authorization: Bearer <AUTH_TOKEN>"
-    const authHeader = req.headers.authorization || "";
-    if (!AUTH || !authHeader.startsWith("Bearer ") || authHeader.split(" ")[1] !== AUTH) {
-      res.status(401).json({ error: "Unauthorized" });
+    // -------- Robust JSON body parsing --------
+    let data = req.body;
+    if (typeof data === "string") {
+      try { data = JSON.parse(data); }
+      catch { res.status(400).json({ error: "Malformed JSON body" }); return; }
+    }
+    if (!data || typeof data !== "object") {
+      res.status(400).json({ error: "Missing JSON body" });
       return;
     }
 
-    const { subject = "", body = "" } = await readJson(req);
-    if (!body) {
+    let { subject = "", body = "", html = "" } = data;
+
+    // If plain body is empty, fall back to HTML (strip tags)
+    if (!body && html) {
+      body = html
+        .replace(/<br\s*\/?>/gi, "\n")
+        .replace(/<\/p>/gi, "\n")
+        .replace(/<[^>]+>/g, "")
+        .replace(/&nbsp;/g, " ")
+        .trim();
+    }
+
+    if (!String(body).trim()) {
       res.status(400).json({ error: "Missing 'body' in JSON payload" });
       return;
     }
 
-    // System + user prompt for strict JSON extraction
+    // -------- Simple bearer auth --------
+    const authHeader = req.headers.authorization || "";
+    const token = authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : "";
+    if (!AUTH || token !== AUTH) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    // -------- Build prompt --------
     const system = [
       "You extract structured meeting details from raw email text.",
       "Return STRICT JSON ONLY. No preamble, no markdown, no comments.",
@@ -68,20 +85,20 @@ export default async function handler(req, res) {
 
     const schema = {
       title: "",
-      date_text: "",     // original date text found (optional, human-readable)
-      time_text: "",     // original time text found (optional)
-      start_iso: "",     // ISO 8601 if determinable
+      date_text: "",
+      time_text: "",
+      start_iso: "",
       end_iso: "",
-      location: "",      // room info or general description
-      address: "",       // street address if present
-      join_url: "",      // Zoom/Meet/Teams link if present
+      location: "",
+      address: "",
+      join_url: "",
       organizer_name: "",
       organizer_email: "",
-      scheduler_name: "",  // agent/assistant who set it up
+      scheduler_name: "",
       scheduler_email: "",
-      attendees_primary: [], // array of names we meet WITH
-      companies: [],         // e.g., ["Platinum Dunes", "UTA"]
-      source_subject: "",    // echo of subject
+      attendees_primary: [],
+      companies: [],
+      source_subject: ""
     };
 
     const user = [
@@ -95,67 +112,60 @@ export default async function handler(req, res) {
       body
     ].join("\n");
 
-    const resp = await client.chat.completions.create({
-      model: MODEL,
-      response_format: { type: "json_object" },
-      temperature: 0,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user }
-      ]
-    });
-
-    let data = {};
+    // -------- OpenAI call with error surfacing --------
     try {
-      data = JSON.parse(resp.choices?.[0]?.message?.content || "{}");
-    } catch {
-      // If model returned non-JSON somehow
-      data = {};
-    }
-
-    // Minimal post-AI guardrails: remove obvious schedulers from attendees
-    const lowerBody = String(body).toLowerCase();
-    const denyKeywords = ["office of", "assistant to", "admin assistant", "scheduler"];
-    const appearsLikeScheduler = (name, email) => {
-      const n = (name || "").toLowerCase();
-      const e = (email || "").toLowerCase();
-      if (SCHEDULER_DENYLIST.some(dom => e.includes(dom))) return true;
-      if (denyKeywords.some(k => n.includes(k))) return true;
-      // if the name appears near signature blocks, heuristic skip (weak but cheap):
-      if (n && lowerBody.includes(n) && /office of|assistant to|o:\s*\+?\d|beverly hills|signature/gi.test(lowerBody)) {
-        return true;
-      }
-      return false;
-    };
-
-    // Clean attendees_primary if model slipped
-    if (Array.isArray(data.attendees_primary)) {
-      data.attendees_primary = data.attendees_primary.filter(n => {
-        // If the AI also included emails in array entries like "Name <email>", split:
-        const emailMatch = String(n).match(/<([^>]+)>/);
-        const email = emailMatch ? emailMatch[1] : "";
-        return !appearsLikeScheduler(String(n), email);
+      const completion = await client.chat.completions.create({
+        model: MODEL,
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user }
+        ]
       });
-    } else {
-      data.attendees_primary = [];
+
+      const content = completion.choices?.[0]?.message?.content || "{}";
+      let parsed;
+      try { parsed = JSON.parse(content); }
+      catch {
+        return res.status(502).json({ error: "Parser error", detail: "Model returned non-JSON", content });
+      }
+
+      // -------- Post-processing / guardrails --------
+      const lowerBody = String(body).toLowerCase();
+      const denyKeywords = ["office of", "assistant to", "admin assistant", "scheduler"];
+      const appearsLikeScheduler = (name, email) => {
+        const n = (name || "").toLowerCase();
+        const e = (email || "").toLowerCase();
+        if (SCHEDULER_DENYLIST.some(dom => e.includes(dom))) return true;
+        if (denyKeywords.some(k => n.includes(k))) return true;
+        if (n && lowerBody.includes(n) && /office of|assistant to|o:\s*\+?\d|beverly hills|signature/gi.test(lowerBody)) return true;
+        return false;
+      };
+
+      if (Array.isArray(parsed.attendees_primary)) {
+        parsed.attendees_primary = parsed.attendees_primary.filter(n => {
+          const emailMatch = String(n).match(/<([^>]+)>/);
+          const email = emailMatch ? emailMatch[1] : "";
+          return !appearsLikeScheduler(String(n), email);
+        });
+      } else {
+        parsed.attendees_primary = [];
+      }
+
+      parsed.source_subject = subject;
+      return res.status(200).json(parsed);
+
+    } catch (err) {
+      console.error("OpenAI error:", err?.status, err?.message, err?.response?.data);
+      return res.status(502).json({
+        error: "Parser error",
+        detail: String(err?.response?.data || err?.message || err)
+      });
     }
 
-    // Always echo subject back
-    data.source_subject = subject;
-
-    res.status(200).json(data);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Parser error", detail: String(err?.message || err) });
+    console.error("Unhandled", err);
+    res.status(500).json({ error: "Server error", detail: String(err?.message || err) });
   }
-}
-
-async function readJson(req) {
-  const text = await new Promise((resolve, reject) => {
-    let buf = "";
-    req.on("data", c => (buf += c));
-    req.on("end", () => resolve(buf));
-    req.on("error", reject);
-  });
-  try { return JSON.parse(text || "{}"); } catch { return {}; }
 }
