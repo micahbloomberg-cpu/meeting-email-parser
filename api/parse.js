@@ -1,17 +1,31 @@
 // Runtime: Node.js on Vercel serverless
 import OpenAI from "openai";
 
+// --- CORS helper ---
+function setCORS(res) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+}
+
 const MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
-const TZ = process.env.TZ || "America/Los_Angeles"; // your default tz for outputs
-const AUTH = process.env.AUTH_TOKEN;                // simple bearer auth
-const SCHEDULER_DENYLIST = (process.env.SCHEDULER_DENYLIST || "@unitedtalent.com,@uta.com")
+const TZ = process.env.MICAHB_TZ || "America/Los_Angeles"; // your default tz for outputs
+const AUTH = process.env.MICAHB_AUTH_TOKEN;                // simple bearer auth
+const SCHEDULER_DENYLIST = (process.env.MICAHB_SCHEDULER_DENYLIST || "@unitedtalent.com,@uta.com")
   .split(",")
   .map(s => s.trim().toLowerCase())
   .filter(Boolean);
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY_MICAHMEYERB });
+const client = new OpenAI({ apiKey: process.env.MICAHB_OPENAI_API_KEY });
 
 export default async function handler(req, res) {
+  // CORS first
+  setCORS(res);
+  if (req.method === "OPTIONS") {
+    res.status(200).end();
+    return;
+  }
+
   try {
     if (req.method !== "POST") {
       res.status(405).json({ error: "Method not allowed" });
