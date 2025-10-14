@@ -88,7 +88,80 @@ export default async function handler(req, res) {
     return;
   }
 
-  // Echo success so we know plumbing works
-  return res.status(200).json({ ok: true, subject, body_len: String(body).length });
+  // -------- Build prompt --------
+const system = [
+  "You extract structured meeting details from raw email text.",
+  "Return STRICT JSON ONLY. No preamble, no markdown, no comments.",
+  "Infer missing values conservatively; if unknown, return empty string or empty array.",
+  `All times should be interpreted in ${process.env.MICAHB_TZ || "America/Los_Angeles"} unless an explicit offset/zone is provided.`,
+  "Only include people we are actually meeting WITH in attendees_primary.",
+  "Agents/assistants (e.g., 'Office of', 'Assistant to', signature blocks) should go to scheduler_name/email, not attendees_primary.",
+  "Prefer names under labels like 'WITH:' or 'Attendees:' for attendees_primary.",
+  "If 'Zoom/Meet/Teams' links appear, set join_url accordingly.",
+  "If an address appears (street/city/state/zip), set address accordingly.",
+  "If both address and join_url exist, include both.",
+  "Return valid ISO 8601 timestamps for start_iso/end_iso when possible (e.g., 2025-09-30T10:00:00-07:00)."
+].join(" ");
+
+const schema = {
+  title: "",
+  date_text: "",
+  time_text: "",
+  start_iso: "",
+  end_iso: "",
+  location: "",
+  address: "",
+  join_url: "",
+  organizer_name: "",
+  organizer_email: "",
+  scheduler_name: "",
+  scheduler_email: "",
+  attendees_primary: [],
+  companies: [],
+  source_subject: ""
+};
+
+const user = [
+  "Extract the following fields from the email according to this JSON template:",
+  JSON.stringify(schema, null, 2),
+  "",
+  "Email subject:",
+  subject,
+  "",
+  "Email body:",
+  body
+].join("\n");
+
+// Lazy import avoids module-load issues
+const { default: OpenAI } = await import("openai");
+const client = new OpenAI({ apiKey: process.env.MICAHB_OPENAI_API_KEY });
+
+try {
+  const completion = await client.chat.completions.create({
+    model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+    temperature: 0.2,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user }
+    ]
+  });
+
+  const content = completion.choices?.[0]?.message?.content || "{}";
+  let parsed;
+  try { parsed = JSON.parse(content); }
+  catch {
+    return res.status(502).json({ error: "Parser error", detail: "Model returned non-JSON", content });
+  }
+
+  parsed.source_subject = subject;
+  return res.status(200).json(parsed);
+
+} catch (err) {
+  console.error("OpenAI error:", err?.status, err?.message, err?.response?.data);
+  return res.status(502).json({
+    error: "Parser error",
+    detail: String(err?.response?.data || err?.message || err)
+  });
 }
 
