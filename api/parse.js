@@ -26,6 +26,23 @@ export default async function handler(req, res) {
     return;
   }
 
+  // ---- TOP-LEVEL DEBUG (runs even on GET) ----
+const topDbg = (req.query && req.query.debug === "1") || req.headers["x-debug"] === "1";
+if (topDbg) {
+  const ah = req.headers.authorization || "";
+  const tok = ah.startsWith("Bearer ") ? ah.split(" ")[1] : "";
+  return res.status(200).json({
+    stage: "top",
+    method: req.method,
+    has_auth_header: Boolean(ah),
+    token_len: tok.length,
+    expected_len: (AUTH || "").length,
+    token_matches: Boolean(AUTH) && tok === AUTH,
+    content_type: req.headers["content-type"] || null
+  });
+}
+
+
   try {
     if (req.method !== "POST") {
       res.status(405).json({ error: "Method not allowed" });
