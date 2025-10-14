@@ -183,5 +183,5 @@ try {
     detail: String(err?.response?.data || err?.message || err)
   });
 }
-
+}
 
