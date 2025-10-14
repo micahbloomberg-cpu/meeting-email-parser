@@ -72,16 +72,16 @@ export default async function handler(req, res) {
       return;
     }
 
-    // -------- Optional inline debug (uncomment if needed) --------
-    // if (req.query && req.query.debug === "1") {
-    //   return res.status(200).json({
-    //     ok: true,
-    //     subject,
-    //     body_len: String(body || "").length,
-    //     has_key: Boolean(process.env.MICAHB_OPENAI_API_KEY),
-    //     model: MODEL,
-    //   });
-    // }
+    -------- Optional inline debug (uncomment if needed) --------
+    if (req.query && req.query.debug === "1") {
+    return res.status(200).json({
+    ok: true,
+    subject,
+    body_len: String(body || "").length,
+    has_key: Boolean(process.env.MICAHB_OPENAI_API_KEY),
+    model: MODEL,
+    });
+    }
 
     // -------- Build prompt --------
     const system = [
