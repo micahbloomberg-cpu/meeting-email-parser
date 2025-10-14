@@ -64,6 +64,25 @@ export default async function handler(req, res) {
       return;
     }
 
+// -------- Inline auth debug (temporary) --------
+const dbg = (req.query && req.query.debug === "1") || req.headers["x-debug"] === "1";
+if (dbg) {
+  const authHeader = req.headers.authorization || "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : "";
+  return res.status(200).json({
+    ok: true,
+    subject,
+    body_len: String(body || "").length,
+    has_key: Boolean(process.env.MICAHB_OPENAI_API_KEY),
+    model: MODEL,
+    // auth diagnostics (no secrets leaked)
+    has_auth_header: Boolean(authHeader),
+    token_len: token.length,
+    expected_len: (AUTH || "").length,
+    token_matches: Boolean(AUTH) && token === AUTH
+  });
+}
+
     // -------- Simple bearer auth --------
     const authHeader = req.headers.authorization || "";
     const token = authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : "";
