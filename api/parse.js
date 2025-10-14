@@ -132,9 +132,23 @@ const user = [
   body
 ].join("\n");
 
-// Lazy import avoids module-load issues
-const { default: OpenAI } = await import("openai");
-const client = new OpenAI({ apiKey: process.env.MICAHB_OPENAI_API_KEY });
+// Lazy import and client init, with error surfacing
+let client;
+try {
+  const { default: OpenAI } = await import("openai");
+  client = new OpenAI({ apiKey: process.env.MICAHB_OPENAI_API_KEY });
+  if (!process.env.MICAHB_OPENAI_API_KEY) {
+    return res.status(502).json({
+      error: "OpenAI init error",
+      detail: "Missing MICAHB_OPENAI_API_KEY in environment"
+    });
+  }
+} catch (e) {
+  return res.status(502).json({
+    error: "OpenAI init error",
+    detail: String(e?.message || e)
+  });
+}
 
 try {
   const completion = await client.chat.completions.create({
@@ -149,9 +163,14 @@ try {
 
   const content = completion.choices?.[0]?.message?.content || "{}";
   let parsed;
-  try { parsed = JSON.parse(content); }
-  catch {
-    return res.status(502).json({ error: "Parser error", detail: "Model returned non-JSON", content });
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return res.status(502).json({
+      error: "Parser error",
+      detail: "Model returned non-JSON",
+      content
+    });
   }
 
   parsed.source_subject = subject;
@@ -164,4 +183,5 @@ try {
     detail: String(err?.response?.data || err?.message || err)
   });
 }
+
 
