@@ -13,6 +13,22 @@ export default async function handler(req, res) {
     return;
   }
 
+  // ---- TOP-LEVEL DEBUG (temporary) ----
+const topDbg = (req.query && req.query.debug === "1") || req.headers["x-debug"] === "1";
+if (topDbg) {
+  const ah = req.headers.authorization || "";
+  const tok = ah.startsWith("Bearer ") ? ah.split(" ")[1] : "";
+  return res.status(200).json({
+    stage: "top",
+    method: req.method,
+    has_auth_header: Boolean(ah),
+    token_len: tok.length,
+    expected_len: (process.env.MICAHB_AUTH_TOKEN || "").length,
+    token_matches: Boolean(process.env.MICAHB_AUTH_TOKEN) && tok === process.env.MICAHB_AUTH_TOKEN,
+    content_type: req.headers["content-type"] || null
+  });
+}
+  
   // Only POST is allowed beyond this point
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed" });
