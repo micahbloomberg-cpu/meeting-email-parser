@@ -2,7 +2,7 @@
 function setCORS(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-echo, x-debug");
 }
 
 export default async function handler(req, res) {
@@ -12,6 +12,31 @@ export default async function handler(req, res) {
     res.status(200).end();
     return;
   }
+
+  // ---------- ULTRA-EARLY ECHO (before any checks) ----------
+  const wantEcho =
+    req.headers["x-echo"] === "1" ||
+    (req.query && req.query.echo === "1");
+
+  if (wantEcho) {
+    return res.status(200).json({
+      stage: "echo",
+      method: req.method,
+      content_type: req.headers["content-type"] || null,
+      typeof_req_body: typeof req.body,
+      keys: req.body && typeof req.body === "object" ? Object.keys(req.body) : [],
+      body_preview:
+        typeof req.body === "object"
+          ? {
+              subject: String(req.body.subject || "").slice(0, 80),
+              body_len: String(req.body.body || "").length,
+              html_len: String(req.body.html || "").length,
+            }
+          : String(req.body || "").slice(0, 200),
+    });
+  }
+  // ----------------------------------------------------------
+
 
   // ---- TOP-LEVEL DEBUG (temporary) ----
 const topDbg = (req.query && req.query.debug === "1") || req.headers["x-debug"] === "1";
