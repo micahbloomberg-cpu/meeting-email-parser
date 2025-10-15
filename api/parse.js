@@ -59,8 +59,12 @@ if (topDbg) {
   }
 
   if (!String(body).trim()) {
-    res.status(400).json({ error: "Missing 'body' in JSON payload" });
-    return;
+    return res.status(400).json({
+      error: "Missing 'body' in JSON payload",
+      hint: "If Gmail Body Plain is empty, include the 'html' chip too.",
+      body_len: String(body || "").length,
+      html_len: String(html || "").length
+    });
   }
 
   // -------- Simple bearer auth --------
