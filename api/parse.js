@@ -35,6 +35,25 @@ if (topDbg) {
     return;
   }
 
+  // --- EARLY ECHO (to see what Zapier actually sent) ---
+if (req.headers["x-echo"] === "1") {
+  return res.status(200).json({
+    stage: "echo",
+    method: req.method,
+    content_type: req.headers["content-type"] || null,
+    typeof_req_body: typeof req.body,
+    keys: req.body && typeof req.body === "object" ? Object.keys(req.body) : [],
+    // If req.body is already an object, peek at values; if it's a string, show the first 120 chars
+    body_preview: typeof req.body === "object"
+      ? {
+          subject: String(req.body.subject || "").slice(0, 80),
+          body_len: String(req.body.body || "").length,
+          html_len: String(req.body.html || "").length
+        }
+      : String(req.body).slice(0, 120)
+  });
+}
+  
   // -------- Robust JSON body parsing --------
   let data = req.body;
   if (typeof data === "string") {
